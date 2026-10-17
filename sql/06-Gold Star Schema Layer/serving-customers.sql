@@ -120,7 +120,6 @@ FROM most_recent_address mra
 LEFT JOIN final_first_category ffc
   ON mra.customer_unique_id = ffc.customer_unique_id;
 
-
 -- V1. Row count -- must equal distinct customer_unique_id count in Silver
 SELECT
   (SELECT COUNT(DISTINCT customer_unique_id) FROM `olist-analytics-500708.olist_clean.customers`) AS silver_distinct_persons,
@@ -145,25 +144,6 @@ SELECT
 FROM `olist-analytics-500708.olist_serving.dim_customer`;
 -- Expected: first four = 0. null_first_category should be > 0 and,
 -- ideally, cross-checked against the RI-7 no-line-item population size.
-
--- V4. Most-recent-address logic spot-check against the 122 known
--- multi-address customers
-SELECT
-  gc.customer_unique_id,
-  gc.customer_state,
-  gc.customer_city
-FROM `olist-analytics-500708.olist_serving.dim_customer` gc
-WHERE gc.customer_unique_id IN (
-  -- substitute the actual flagged multi-address customer_unique_ids
-  -- from Silver's has_multiple_addresses_on_record = TRUE population
-  SELECT customer_unique_id
-  FROM `olist-analytics-500708.olist_clean.customers`
-  WHERE has_multiple_addresses_on_record = TRUE
-)
-LIMIT 20;
--- Manually verify a few against known order history -- confirm the
--- address shown matches that customer's MOST RECENT order, not an
--- arbitrary or first one.
 
 -- V5. first_purchase_category null count should approximate (not
 -- necessarily exactly equal, due to the multi-seller/category tiebreak

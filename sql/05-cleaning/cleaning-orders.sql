@@ -171,7 +171,8 @@ SELECT
   COUNTIF(is_delivered_missing_carrier_anomaly)           AS n_delivered_no_carrier,    -- expect 2
   COUNTIF(is_canceled_with_delivery_date_anomaly)         AS n_canceled_with_delivery,  -- expect 6
   COUNTIF(is_delivery_before_carrier_anomaly)             AS n_delivery_before_carrier, -- expect 23
-  COUNTIF(is_carrier_before_approval_anomaly)             AS n_carrier_before_approval  -- expect 1359
+  COUNTIF(is_carrier_before_approval_anomaly)             AS n_carrier_before_approval,  -- expect 1359
+  countif(is_expected_null_delivery)                      AS expected_null
 FROM `olist-analytics-500708.olist_clean.orders`;
 
 -- ---------------------------------------------------------------------

@@ -18,8 +18,6 @@ WITH standardized AS (
     -- Order-level surrogate key. Unique per profiling (99,441 = 99,441).
     customer_id,
 
-    -- Person-level identifier. Cardinality lower than customer_id by
-    -- design -- this is the expected structure, not a defect.
     customer_unique_id,
 
     -- Zip code prefix: cast to STRING and zero-pad to 5 digits.
@@ -47,37 +45,41 @@ WITH standardized AS (
 
 ),
 
-multi_address_check AS (
-  -- Identify which customer_unique_ids span more than one city or
-  -- state across their customer_id rows. Powers Flag 1 below.
-  -- This is a WITHIN-TABLE aggregation (customers joined to itself
-  -- via GROUP BY), not a cross-table join -- stays in scope for this layer.
-  SELECT
-    customer_unique_id,
-    COUNT(DISTINCT customer_city)  AS distinct_cities,
-    COUNT(DISTINCT customer_state) AS distinct_states
-  FROM standardized
-  GROUP BY customer_unique_id
+-- Evidenced typo/formatting corrections, derived from zip-prefix
+-- majority-pattern triage. Deterministic substitution only.
+correction_lookup AS (
+  SELECT * FROM UNNEST([
+    STRUCT('dias d avila' AS incorrect_value, "dias d'avila" AS correct_value),
+    STRUCT('arraial d ajuda', "arraial d'ajuda"),
+    STRUCT('itapage', 'itapaje'),
+    STRUCT('planaltina de goias', 'planaltina'),
+    STRUCT('brasopolis', 'brazopolis'),
+    STRUCT('piumhi', 'piumhii'),
+    STRUCT('bataipora', 'bataypora'),
+    STRUCT('palmeira d oeste', "palmeira d'oeste"),
+    STRUCT('estrela d oeste', "estrela d'oeste"),
+    STRUCT('mogi-mirim', 'mogi mirim'),
+    STRUCT('santa barbara d oeste', "santa barbara d'oeste"),
+    STRUCT('embu', 'embu das artes'),
+    STRUCT('picarras', 'balneario picarras'),
+    STRUCT('parati', 'paraty'),
+    STRUCT('vitoria', 'colonia vitoria'),
+    struct('sao jorge do oeste', "sao jorge d'oeste")
+  ])
 ),
 
 flagged AS (
 
   SELECT
-    s.*,
-
-    -- FLAG 1: This customer_unique_id is associated with more than one
-    -- city or state across their order history. Profiling finding:
-    -- 122 such customer_unique_ids. Plausible explanation is address
-    -- change between orders, but this is NOT independently verifiable
-    -- from this table alone -- treated as an assumption, not a fact.
-    -- Flagged rather than corrected: there is no reliable basis to
-    -- pick one address as "the correct one."
-    (m.distinct_cities > 1 OR m.distinct_states > 1)
-        AS has_multiple_addresses_on_record
-
+    s.customer_id,
+    s.customer_unique_id,
+    s.customer_zip_code_prefix,
+  COALESCE(cl.correct_value, s.customer_city) AS customer_city,
+  s.customer_state,
+  (cl.correct_value IS NOT NULL) AS city_was_corrected
   FROM standardized s
-  LEFT JOIN multi_address_check m
-    ON s.customer_unique_id = m.customer_unique_id
+  LEFT JOIN correction_lookup cl
+    ON s.customer_city = cl.incorrect_value
 
 )
 
@@ -158,12 +160,28 @@ WHERE customer_city != LOWER(TRIM(customer_city));
 -- Expected: 0
 
 -- ---------------------------------------------------------------------
--- V9. Flag count -- confirm matches approved profiling number
+-- V9. multiple cities typo - 15 left
 -- ---------------------------------------------------------------------
-SELECT COUNT(DISTINCT customer_unique_id) AS flagged_customers
+SELECT
+customer_zip_code_prefix,
+ARRAY_AGG(DISTINCT customer_city ORDER BY customer_city) AS cities,
+-- COUNT(*) AS sellers
+ARRAY_AGG(DISTINCT customer_state ORDER BY customer_state) AS states,
 FROM `olist-analytics-500708.olist_clean.customers`
-WHERE has_multiple_addresses_on_record = TRUE;
--- Expected: 122
+GROUP BY customer_zip_code_prefix
+HAVING COUNT(DISTINCT customer_city) > 1;
+-- Expected: <39 as many were corrected
+
+-- Correction count -- confirm matches the number of pairs you
+-- populate in correction_lookup - 425
+SELECT COUNT(*) AS corrected_rows
+FROM `olist-analytics-500708.olist_clean.customers`
+WHERE city_was_corrected = TRUE;
+
+-- count of affected rows is reasonable (some typos may repeat across customers) - 425
+SELECT COUNT(*) AS corrected_rows
+FROM `olist-analytics-500708.olist_clean.customers`
+WHERE city_was_corrected = TRUE;
 
 -- ---------------------------------------------------------------------
 -- V10. Referential integrity -- customers <- orders (reverse of RI-1,

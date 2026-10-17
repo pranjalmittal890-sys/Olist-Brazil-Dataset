@@ -71,6 +71,14 @@ order_level_attributes AS (
              DAY)
     END AS delivery_estimate_error_days,
 
+    CASE
+      WHEN o.order_delivered_customer_date IS NULL THEN NULL
+      ELSE DATE_DIFF(
+        DATE(o.order_delivered_customer_date),
+             DATE(o.order_purchase_timestamp),
+             DAY)
+    END AS total_days,
+
     -- Rolled-up anomaly summary across all seven Silver-layer order-
     -- level flags (six of the seven map to the approved junk
     -- dimension; this boolean is independent of that dimension and
@@ -81,6 +89,8 @@ order_level_attributes AS (
       OR o.is_delivered_missing_multiple_dates_anomaly
       OR o.is_carrier_before_approval_anomaly
       OR o.is_canceled_with_delivery_date_anomaly
+      OR o.is_delivered_missing_final_date_only
+      OR o.is_delivered_missing_carrier_anomaly
     ) AS has_order_level_anomaly,
 
     -- Carry the raw flags forward for the junk dimension join below --
@@ -89,7 +99,9 @@ order_level_attributes AS (
     o.is_delivered_missing_approval_anomaly,
     o.is_delivered_missing_multiple_dates_anomaly,
     o.is_carrier_before_approval_anomaly,
-    o.is_canceled_with_delivery_date_anomaly
+    o.is_canceled_with_delivery_date_anomaly,
+    o.is_delivered_missing_final_date_only,
+    o.is_delivered_missing_carrier_anomaly
 
   FROM `olist-analytics-500708.olist_clean.orders` o
 ),
@@ -132,6 +144,7 @@ SELECT
   ola.carrier_to_customer_days,
   ola.is_delivered_on_time,
   ola.delivery_estimate_error_days,   -- NEW
+  ola.total_days,
 
   rr.review_score,
   (rr.review_score IS NOT NULL) AS has_review,
@@ -170,6 +183,8 @@ LEFT JOIN `olist-analytics-500708.olist_serving.data_quality_flags` dqf
   AND ola.is_delivered_missing_multiple_dates_anomaly = dqf.is_delivered_missing_multiple_dates_anomaly
   AND ola.is_carrier_before_approval_anomaly = dqf.is_carrier_before_approval_anomaly
   AND ola.is_canceled_with_delivery_date_anomaly = dqf.is_canceled_with_delivery_date_anomaly
+  AND ola.is_delivered_missing_final_date_only = dqf.is_delivered_missing_final_date_only
+  AND ola.is_delivered_missing_carrier_anomaly = dqf.is_delivered_missing_carrier_anomaly
   AND oi.is_shipping_date_anomaly = dqf.is_shipping_anomaly;
 
 
@@ -468,3 +483,12 @@ FULL OUTER JOIN `olist-analytics-500708.olist_clean.category_translation` ct
   ON p.product_category_name = ct.category_name_portuguese
 WHERE p.product_category_name = 'cool_stuff'
    OR ct.category_name_portuguese LIKE '%cool%stuff%';
+
+select order_status, count(distinct order_id)
+from `olist-analytics-500708.olist_serving.fact_order_item_fulfillment` 
+where has_review=True
+group by 1
+
+select count(distinct order_id)
+from `olist-analytics-500708.olist_serving.fact_order_item_fulfillment` 
+

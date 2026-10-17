@@ -19,11 +19,13 @@ WITH item_level_flags AS (
   -- the one item-native flag (shipping anomaly) already lives at this
   -- grain natively in order_items.
   SELECT DISTINCT
-    o.is_delivery_before_carrier_anomaly,
+  o.is_delivery_before_carrier_anomaly,
     o.is_delivered_missing_approval_anomaly,
     o.is_delivered_missing_multiple_dates_anomaly,
     o.is_carrier_before_approval_anomaly,
     o.is_canceled_with_delivery_date_anomaly,
+    o.is_delivered_missing_final_date_only,
+    o.is_delivered_missing_carrier_anomaly,
     oi.is_shipping_date_anomaly AS is_shipping_anomaly
   FROM `olist-analytics-500708.olist_clean.order_items` oi
   INNER JOIN `olist-analytics-500708.olist_clean.orders` o
@@ -40,6 +42,8 @@ SELECT
       is_delivered_missing_multiple_dates_anomaly,
       is_carrier_before_approval_anomaly,
       is_canceled_with_delivery_date_anomaly,
+      is_delivered_missing_final_date_only,
+      is_delivered_missing_carrier_anomaly,
       is_shipping_anomaly
   ) AS data_quality_key,
 
@@ -48,14 +52,16 @@ SELECT
   is_delivered_missing_multiple_dates_anomaly,
   is_carrier_before_approval_anomaly,
   is_canceled_with_delivery_date_anomaly,
+  is_delivered_missing_final_date_only,
+  is_delivered_missing_carrier_anomaly,
   is_shipping_anomaly
 
 FROM item_level_flags;
 
--- V1. Confirm exactly 6 distinct combinations, as previously validated
+-- V1. Confirm exactly 9 distinct combinations, as previously validated
 SELECT COUNT(*) AS combination_count
 FROM `olist-analytics-500708.olist_serving.data_quality_flags`;
--- Expected: 6
+-- Expected: 9
 
 -- V2. Primary key validation
 SELECT COUNT(*) AS total_rows, COUNT(DISTINCT data_quality_key) AS distinct_keys
@@ -68,9 +74,10 @@ SELECT
   is_delivery_before_carrier_anomaly, is_delivered_missing_approval_anomaly,
   is_delivered_missing_multiple_dates_anomaly, is_carrier_before_approval_anomaly,
   is_canceled_with_delivery_date_anomaly, is_shipping_anomaly,
+  is_delivered_missing_final_date_only,is_delivered_missing_carrier_anomaly,
   COUNT(*) AS n
 FROM `olist-analytics-500708.olist_serving.data_quality_flags`
-GROUP BY 1,2,3,4,5,6
+GROUP BY 1,2,3,4,5,6,7,8
 HAVING COUNT(*) > 1;
 -- Expected: 0 rows returned
 
@@ -87,6 +94,8 @@ WITH fact_grain_flags AS (
     o.is_delivered_missing_multiple_dates_anomaly,
     o.is_carrier_before_approval_anomaly,
     o.is_canceled_with_delivery_date_anomaly,
+    o.is_delivered_missing_final_date_only,      
+    o.is_delivered_missing_carrier_anomaly,
     oi.is_shipping_date_anomaly AS is_shipping_anomaly
   FROM `olist-analytics-500708.olist_clean.order_items` oi
   INNER JOIN `olist-analytics-500708.olist_clean.orders` o
@@ -100,6 +109,8 @@ LEFT JOIN `olist-analytics-500708.olist_serving.data_quality_flags` dqf
   AND f.is_delivered_missing_multiple_dates_anomaly = dqf.is_delivered_missing_multiple_dates_anomaly
   AND f.is_carrier_before_approval_anomaly = dqf.is_carrier_before_approval_anomaly
   AND f.is_canceled_with_delivery_date_anomaly = dqf.is_canceled_with_delivery_date_anomaly
+  AND f.is_delivered_missing_final_date_only = dqf.is_delivered_missing_final_date_only
+  AND f.is_delivered_missing_carrier_anomaly = dqf.is_delivered_missing_carrier_anomaly
   AND f.is_shipping_anomaly = dqf.is_shipping_anomaly
 WHERE dqf.data_quality_key IS NULL;
 -- Expected: 0. If this returns non-zero, the dimension is missing at
